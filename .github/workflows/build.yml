@@ -21,63 +21,105 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "15.4"
+          xcode-version: "16.4"
+
+      - name: Show selected Xcode and available SDKs
+        run: |
+          set -euo pipefail
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -showsdks
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          set -euo pipefail
+
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+          xcodegen --version
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          set -euo pipefail
+          xcodegen generate
 
       - name: Build iPhone and iPad iOS simulator app
-        run: >-
-          xcodebuild
-          -project DesktopBuddy.xcodeproj
-          -scheme DesktopBuddy-iOS
-          -sdk iphonesimulator
-          -configuration Debug
-          -derivedDataPath build/ios
-          CODE_SIGNING_ALLOWED=NO
-          CODE_SIGNING_REQUIRED=NO
-          build
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project DesktopBuddy.xcodeproj \
+            -scheme DesktopBuddy-iOS \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
 
       - name: Build macOS app
-        run: >-
-          xcodebuild
-          -project DesktopBuddy.xcodeproj
-          -scheme DesktopBuddy-macOS
-          -sdk macosx
-          -configuration Debug
-          -derivedDataPath build/macos
-          CODE_SIGNING_ALLOWED=NO
-          CODE_SIGNING_REQUIRED=NO
-          build
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project DesktopBuddy.xcodeproj \
+            -scheme DesktopBuddy-macOS \
+            -sdk macosx \
+            -configuration Debug \
+            -derivedDataPath build/macos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
 
       - name: Build watchOS simulator app
-        run: >-
-          xcodebuild
-          -project DesktopBuddy.xcodeproj
-          -scheme DesktopBuddy-watchOS
-          -sdk watchsimulator
-          -configuration Debug
-          -derivedDataPath build/watchos
-          CODE_SIGNING_ALLOWED=NO
-          CODE_SIGNING_REQUIRED=NO
-          build
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project DesktopBuddy.xcodeproj \
+            -scheme DesktopBuddy-watchOS \
+            -sdk watchsimulator \
+            -configuration Debug \
+            -derivedDataPath build/watchos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
 
       - name: Package unsigned build products
         run: |
           set -euo pipefail
+
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/ios/Build/Products/Debug-iphonesimulator/DesktopBuddy-iOS.app \
-            artifacts/DesktopBuddy-iOS-simulator.zip
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/macos/Build/Products/Debug/DesktopBuddy-macOS.app \
-            artifacts/DesktopBuddy-macOS.zip
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/watchos/Build/Products/Debug-watchsimulator/DesktopBuddy-watchOS.app \
-            artifacts/DesktopBuddy-watchOS-simulator.zip
+
+          package_app() {
+            local app_path="$1"
+            local zip_path="$2"
+
+            if [[ ! -d "$app_path" ]]; then
+              echo "::error::Expected app bundle not found: $app_path"
+              echo "Available app bundles:"
+              find build -type d -name "*.app" -prune -print
+              exit 1
+            fi
+
+            ditto -c -k --sequesterRsrc --keepParent \
+              "$app_path" \
+              "$zip_path"
+          }
+
+          package_app \
+            "build/ios/Build/Products/Debug-iphonesimulator/DesktopBuddy-iOS.app" \
+            "artifacts/DesktopBuddy-iOS-simulator.zip"
+
+          package_app \
+            "build/macos/Build/Products/Debug/DesktopBuddy-macOS.app" \
+            "artifacts/DesktopBuddy-macOS.zip"
+
+          package_app \
+            "build/watchos/Build/Products/Debug-watchsimulator/DesktopBuddy-watchOS.app" \
+            "artifacts/DesktopBuddy-watchOS-simulator.zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
