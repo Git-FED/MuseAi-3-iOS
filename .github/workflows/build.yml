@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build iOS, macOS, and watchOS
+    name: Build iPhone/iPad, macOS, and watchOS
     runs-on: macos-14
 
     steps:
@@ -29,7 +29,7 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build iOS simulator app
+      - name: Build iPhone and iPad iOS simulator app
         run: >-
           xcodebuild
           -project DesktopBuddy.xcodeproj
