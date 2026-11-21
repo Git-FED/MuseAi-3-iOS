@@ -34,6 +34,7 @@ jobs:
       - name: Show selected Xcode and SDKs
         run: |
           set -euo pipefail
+
           xcode-select -p
           xcodebuild -version
           xcodebuild -showsdks
@@ -48,8 +49,8 @@ jobs:
 
           xcodegen --version
 
-      # Temporary source fix applied only to the checked-out CI copy.
-      # Prefer committing this conversion directly to MuseWebView.swift.
+      # Applies the earlier Swift correction to the CI working copy.
+      # Existing direct UUID conversions are left unchanged.
       - name: Fix website data store UUID argument
         run: |
           set -euo pipefail
@@ -80,19 +81,265 @@ jobs:
                   source = "import Foundation\n" + source
 
               path.write_text(source, encoding="utf-8")
-              print(f"Patched String-to-UUID conversion in {path}")
-          elif new in source:
-              print("UUID conversion is already present.")
+              print(f"Applied String-to-UUID correction in {path}")
           else:
-              raise SystemExit(
-                  "Expected source expression was not found. "
-                  "Review MuseWebView.swift before applying this patch."
+              print(
+                  "Original String argument expression is absent; "
+                  "leaving existing source unchanged."
               )
+          PY
+
+      # Rebuilds only the watch app's icon catalog.
+      # Uses existing square PNG artwork, not a placeholder.
+      - name: Repair watchOS app icon catalog
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          watch_catalog = Path(
+              "DesktopBuddyWatch/Assets.xcassets/AppIcon.appiconset"
+          )
+
+          source_catalogs = [
+              watch_catalog,
+              Path("DesktopBuddyApple/Assets.xcassets/AppIcon.appiconset"),
+          ]
+
+          def image_dimensions(path):
+              result = subprocess.run(
+                  [
+                      "sips",
+                      "-g", "pixelWidth",
+                      "-g", "pixelHeight",
+                      str(path),
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+
+              dimensions = {}
+
+              for line in result.stdout.splitlines():
+                  key, separator, value = line.strip().partition(":")
+
+                  if separator and key in ("pixelWidth", "pixelHeight"):
+                      dimensions[key] = int(value.strip())
+
+              return (
+                  dimensions.get("pixelWidth", 0),
+                  dimensions.get("pixelHeight", 0),
+              )
+
+          candidates = []
+
+          for catalog in source_catalogs:
+              if not catalog.is_dir():
+                  continue
+
+              for image in catalog.glob("*.png"):
+                  try:
+                      width, height = image_dimensions(image)
+                  except (subprocess.CalledProcessError, ValueError):
+                      continue
+
+                  if width > 0 and width == height:
+                      candidates.append((width, image))
+
+          if not candidates:
+              raise SystemExit(
+                  "No square PNG artwork found in the watch or Apple "
+                  "AppIcon catalog. Add your app icon PNG and rerun."
+              )
+
+          source_size, source_path = max(
+              candidates,
+              key=lambda candidate: candidate[0],
+          )
+
+          print(
+              f"Using existing artwork: {source_path} "
+              f"({source_size}x{source_size})"
+          )
+
+          if source_size < 1024:
+              print(
+                  "::warning::Source artwork is smaller than 1024x1024. "
+                  "It will be upscaled. Use high-resolution artwork "
+                  "for a release build."
+              )
+
+          slots = [
+              {
+                  "size": "24x24",
+                  "scale": "2x",
+                  "role": "notificationCenter",
+                  "subtype": "38mm",
+                  "pixels": 48,
+              },
+              {
+                  "size": "27.5x27.5",
+                  "scale": "2x",
+                  "role": "notificationCenter",
+                  "subtype": "42mm",
+                  "pixels": 55,
+              },
+              {
+                  "size": "29x29",
+                  "scale": "2x",
+                  "role": "companionSettings",
+                  "pixels": 58,
+              },
+              {
+                  "size": "29x29",
+                  "scale": "3x",
+                  "role": "companionSettings",
+                  "pixels": 87,
+              },
+              {
+                  "size": "40x40",
+                  "scale": "2x",
+                  "role": "appLauncher",
+                  "subtype": "38mm",
+                  "pixels": 80,
+              },
+              {
+                  "size": "44x44",
+                  "scale": "2x",
+                  "role": "appLauncher",
+                  "subtype": "40mm",
+                  "pixels": 88,
+              },
+              {
+                  "size": "50x50",
+                  "scale": "2x",
+                  "role": "appLauncher",
+                  "subtype": "44mm",
+                  "pixels": 100,
+              },
+              {
+                  "size": "86x86",
+                  "scale": "2x",
+                  "role": "quickLook",
+                  "subtype": "38mm",
+                  "pixels": 172,
+              },
+              {
+                  "size": "98x98",
+                  "scale": "2x",
+                  "role": "quickLook",
+                  "subtype": "42mm",
+                  "pixels": 196,
+              },
+              {
+                  "size": "108x108",
+                  "scale": "2x",
+                  "role": "quickLook",
+                  "subtype": "44mm",
+                  "pixels": 216,
+              },
+          ]
+
+          watch_catalog.mkdir(parents=True, exist_ok=True)
+
+          with tempfile.TemporaryDirectory() as temporary_directory:
+              source_copy = Path(temporary_directory) / "source.png"
+              source_copy.write_bytes(source_path.read_bytes())
+
+              entries = []
+
+              for slot in slots:
+                  pixels = slot["pixels"]
+                  role = slot["role"]
+                  subtype = slot.get("subtype", "settings")
+                  scale = slot["scale"]
+
+                  filename = f"WatchIcon-{role}-{subtype}-{scale}.png"
+
+                  subprocess.run(
+                      [
+                          "sips",
+                          "-s", "format", "png",
+                          "-z", str(pixels), str(pixels),
+                          str(source_copy),
+                          "--out", str(watch_catalog / filename),
+                      ],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  )
+
+                  entry = {
+                      key: value
+                      for key, value in slot.items()
+                      if key != "pixels"
+                  }
+
+                  entry["idiom"] = "watch"
+                  entry["filename"] = filename
+                  entries.append(entry)
+
+              marketing_filename = "WatchIcon-Marketing-1024.png"
+
+              subprocess.run(
+                  [
+                      "sips",
+                      "-s", "format", "png",
+                      "-z", "1024", "1024",
+                      str(source_copy),
+                      "--out",
+                      str(watch_catalog / marketing_filename),
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+
+              entries.append(
+                  {
+                      "idiom": "watch-marketing",
+                      "size": "1024x1024",
+                      "scale": "1x",
+                      "filename": marketing_filename,
+                  }
+              )
+
+              contents = {
+                  "images": entries,
+                  "info": {
+                      "author": "xcode",
+                      "version": 1,
+                  },
+              }
+
+              (watch_catalog / "Contents.json").write_text(
+                  json.dumps(contents, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+
+              referenced_files = {
+                  entry["filename"] for entry in entries
+              }
+
+              for image in watch_catalog.glob("*.png"):
+                  if image.name not in referenced_files:
+                      image.unlink()
+
+          print(
+              f"Rebuilt {watch_catalog} with "
+              f"{len(entries)} watchOS icon entries."
+          )
           PY
 
       - name: Generate Xcode project
         run: |
           set -euo pipefail
+
           xcodegen generate
 
       - name: Build iPhone and iPad iOS simulator app
