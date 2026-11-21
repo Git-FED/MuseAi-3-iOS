@@ -1,0 +1,88 @@
+name: Build Desktop Buddy Apple apps
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build iOS, macOS, and watchOS
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.4"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iOS simulator app
+        run: >-
+          xcodebuild
+          -project DesktopBuddy.xcodeproj
+          -scheme DesktopBuddy-iOS
+          -sdk iphonesimulator
+          -configuration Debug
+          -derivedDataPath build/ios
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
+
+      - name: Build macOS app
+        run: >-
+          xcodebuild
+          -project DesktopBuddy.xcodeproj
+          -scheme DesktopBuddy-macOS
+          -sdk macosx
+          -configuration Debug
+          -derivedDataPath build/macos
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
+
+      - name: Build watchOS simulator app
+        run: >-
+          xcodebuild
+          -project DesktopBuddy.xcodeproj
+          -scheme DesktopBuddy-watchOS
+          -sdk watchsimulator
+          -configuration Debug
+          -derivedDataPath build/watchos
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
+
+      - name: Package unsigned build products
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/Build/Products/Debug-iphonesimulator/DesktopBuddy-iOS.app \
+            artifacts/DesktopBuddy-iOS-simulator.zip
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Debug/DesktopBuddy-macOS.app \
+            artifacts/DesktopBuddy-macOS.zip
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/watchos/Build/Products/Debug-watchsimulator/DesktopBuddy-watchOS.app \
+            artifacts/DesktopBuddy-watchOS-simulator.zip
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-buddy-apple-builds
+          path: artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 14
