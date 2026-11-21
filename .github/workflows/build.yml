@@ -13,6 +13,14 @@ jobs:
   build:
     name: Build iPhone/iPad, macOS, and watchOS
     runs-on: macos-15
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
 
     steps:
       - name: Check out repository
@@ -23,7 +31,7 @@ jobs:
         with:
           xcode-version: "16.4"
 
-      - name: Show selected Xcode and available SDKs
+      - name: Show selected Xcode and SDKs
         run: |
           set -euo pipefail
           xcode-select -p
@@ -40,6 +48,48 @@ jobs:
 
           xcodegen --version
 
+      # Temporary source fix applied only to the checked-out CI copy.
+      # Prefer committing this conversion directly to MuseWebView.swift.
+      - name: Fix website data store UUID argument
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("DesktopBuddyShared/MuseWebView.swift")
+
+          if not path.is_file():
+              raise SystemExit(f"Required source file not found: {path}")
+
+          source = path.read_text(encoding="utf-8")
+
+          old = "WKWebsiteDataStore(forIdentifier: session.id)"
+
+          new = """WKWebsiteDataStore(forIdentifier: {
+              guard let identifier = UUID(uuidString: session.id) else {
+                  preconditionFailure("Session ID must be a valid UUID string")
+              }
+              return identifier
+          }())"""
+
+          if old in source:
+              source = source.replace(old, new)
+
+              if "import Foundation" not in source:
+                  source = "import Foundation\n" + source
+
+              path.write_text(source, encoding="utf-8")
+              print(f"Patched String-to-UUID conversion in {path}")
+          elif new in source:
+              print("UUID conversion is already present.")
+          else:
+              raise SystemExit(
+                  "Expected source expression was not found. "
+                  "Review MuseWebView.swift before applying this patch."
+              )
+          PY
+
       - name: Generate Xcode project
         run: |
           set -euo pipefail
@@ -48,49 +98,57 @@ jobs:
       - name: Build iPhone and iPad iOS simulator app
         run: |
           set -euo pipefail
+          mkdir -p logs
 
           xcodebuild \
             -project DesktopBuddy.xcodeproj \
             -scheme DesktopBuddy-iOS \
             -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
             -configuration Debug \
             -derivedDataPath build/ios \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build \
+            2>&1 | tee logs/ios-build.log
 
       - name: Build macOS app
         run: |
           set -euo pipefail
+          mkdir -p logs
 
           xcodebuild \
             -project DesktopBuddy.xcodeproj \
             -scheme DesktopBuddy-macOS \
             -sdk macosx \
+            -destination "generic/platform=macOS" \
             -configuration Debug \
             -derivedDataPath build/macos \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build \
+            2>&1 | tee logs/macos-build.log
 
       - name: Build watchOS simulator app
         run: |
           set -euo pipefail
+          mkdir -p logs
 
           xcodebuild \
             -project DesktopBuddy.xcodeproj \
             -scheme DesktopBuddy-watchOS \
             -sdk watchsimulator \
+            -destination "generic/platform=watchOS Simulator" \
             -configuration Debug \
             -derivedDataPath build/watchos \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            build \
+            2>&1 | tee logs/watchos-build.log
 
       - name: Package unsigned build products
         run: |
           set -euo pipefail
-
           mkdir -p artifacts
 
           package_app() {
@@ -101,10 +159,14 @@ jobs:
               echo "::error::Expected app bundle not found: $app_path"
               echo "Available app bundles:"
               find build -type d -name "*.app" -prune -print
-              exit 1
+              return 1
             fi
 
-            ditto -c -k --sequesterRsrc --keepParent \
+            ditto \
+              -c \
+              -k \
+              --sequesterRsrc \
+              --keepParent \
               "$app_path" \
               "$zip_path"
           }
@@ -127,4 +189,13 @@ jobs:
           name: desktop-buddy-apple-builds
           path: artifacts/*.zip
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-buddy-build-logs
+          path: logs/*.log
+          if-no-files-found: ignore
           retention-days: 14
