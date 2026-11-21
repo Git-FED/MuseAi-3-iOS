@@ -1,5 +1,7 @@
 # Desktop Buddy — Apple platforms
 
+<img width="1329" height="717" alt="Screenshot 2026-11-20 202507" src="https://github.com/user-attachments/assets/76e7dfbc-8e26-4943-9e96-ce19c7b8da1c" />
+
 Apple-native conversion of the uploaded Electron Desktop Buddy source. The project targets **iOS, macOS, and watchOS only**; Android, Windows, Linux, and Electron packaging are intentionally excluded.
 
 ## What is included
