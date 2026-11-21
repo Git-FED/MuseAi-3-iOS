@@ -28,6 +28,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Desktop Buddy
         INFOPLIST_KEY_NSCameraUsageDescription: Desktop Buddy does not use the camera.
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: false
+        # 1 = iPhone, 2 = iPad
         TARGETED_DEVICE_FAMILY: "1,2"
     info:
       path: DesktopBuddyApple/Info.plist
